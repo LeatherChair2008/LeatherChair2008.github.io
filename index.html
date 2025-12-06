@@ -1,0 +1,116 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="UTF-8" />
+<title>Secure 2-Person Chat</title>
+<style>
+body { font-family: Arial; margin: 20px; }
+#log { width:100%; height:200px; border:1px solid #aaa; padding:10px; overflow:auto; }
+input, textarea { width: 100%; margin-top: 10px; }
+</style>
+</head>
+<body>
+<h2>Secure 2-Person Chat (Peer-to-Peer, E2EE)</h2>
+
+<p><b>1. One person clicks “Create Offer” and sends the text to the other.</b></p>
+<p><b>2. The other clicks “Create Answer” and sends the text back.</b></p>
+
+<textarea id="offer" placeholder="Offer or Answer"></textarea>
+<button onclick="createOffer()">Create Offer</button>
+<button onclick="createAnswer()">Create Answer</button>
+
+<div id="connectArea" style="display:none;">
+    <h3>Chat</h3>
+    <div id="log"></div>
+    <input id="msg" placeholder="Type message..." />
+    <button onclick="sendMsg()">Send</button>
+</div>
+
+<script>
+// --- WebRTC + E2EE Chat ---
+let pc = new RTCPeerConnection();
+let channel;
+let key;
+
+(async () => {
+    key = await window.crypto.subtle.generateKey(
+        {name:"AES-GCM", length:256},
+        true,
+        ["encrypt","decrypt"]
+    );
+})();
+
+pc.ondatachannel = (event) => {
+    channel = event.channel;
+    setupChannel();
+};
+
+function setupChannel() {
+    channel.onmessage = async (e) => {
+        const data = JSON.parse(e.data);
+        const decrypted = await decrypt(data.ciphertext, data.iv);
+        log("Them: " + decrypted);
+    };
+    document.getElementById("connectArea").style.display = "block";
+}
+
+function log(t) {
+    let l = document.getElementById("log");
+    l.innerHTML += t + "<br>";
+    l.scrollTop = l.scrollHeight;
+}
+
+async function encrypt(text) {
+    const iv = window.crypto.getRandomValues(new Uint8Array(12));
+    const encoded = new TextEncoder().encode(text);
+    const ciphertext = await crypto.subtle.encrypt({name:"AES-GCM", iv}, key, encoded);
+    return {
+        ciphertext: btoa(String.fromCharCode(...new Uint8Array(ciphertext))),
+        iv: btoa(String.fromCharCode(...iv))
+    };
+}
+
+async function decrypt(ciphertext, iv) {
+    const ct = Uint8Array.from(atob(ciphertext), c => c.charCodeAt(0));
+    const ivb = Uint8Array.from(atob(iv), c => c.charCodeAt(0));
+    const plain = await crypto.subtle.decrypt({name:"AES-GCM", iv:ivb}, key, ct);
+    return new TextDecoder().decode(plain);
+}
+
+async function sendMsg() {
+    const text = document.getElementById("msg").value;
+    const encrypted = await encrypt(text);
+    channel.send(JSON.stringify(encrypted));
+    log("You: " + text);
+    document.getElementById("msg").value = "";
+}
+
+// ---- Connection Setup ----
+async function createOffer() {
+    channel = pc.createDataChannel("chat");
+    setupChannel();
+
+    const offer = await pc.createOffer();
+    await pc.setLocalDescription(offer);
+
+    document.getElementById("offer").value = JSON.stringify(offer);
+}
+
+async function createAnswer() {
+    const offer = JSON.parse(document.getElementById("offer").value);
+    await pc.setRemoteDescription(offer);
+
+    const answer = await pc.createAnswer();
+    await pc.setLocalDescription(answer);
+
+    document.getElementById("offer").value = JSON.stringify(answer);
+
+    pc.onicecandidate = (e) => {
+        if (e.candidate === null) {
+            document.getElementById("offer").value = JSON.stringify(pc.localDescription);
+        }
+    };
+}
+</script>
+</body>
+</html>
