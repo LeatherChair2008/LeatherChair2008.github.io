@@ -1,187 +1,162 @@
 <!DOCTYPE html>
-<html>
+<html lang="en">
 <head>
-<meta charset="UTF-8">
-<title>Secure AutoConnect Chat</title>
-<style>
-body { font-family: Arial; margin:20px; }
-#log { width:100%; height:300px; border:1px solid #aaa; padding:10px; overflow:auto; }
-input { width:100%; margin-top:10px; }
-button { margin-top:5px; }
-</style>
+  <meta charset="UTF-8" />
+  <title>Simple Encrypted Chat</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <style>
+    body { font-family: sans-serif; max-width: 700px; margin: 0 auto; padding: 1rem; }
+    #chat { border: 1px solid #ccc; height: 300px; overflow-y: auto; padding: 0.5rem; margin-top: 1rem; }
+    .msg { margin: 0.25rem 0; }
+    .me { font-weight: bold; color: #0a6; }
+    .other { color: #333; }
+    #top { display: flex; flex-wrap: wrap; gap: 0.5rem; }
+    #top input { flex: 1 1 150px; padding: 0.25rem; }
+    #sendArea { margin-top: 0.5rem; display: flex; gap: 0.5rem; }
+    #sendArea input[type=text] { flex: 1; padding: 0.25rem; }
+    #status { font-size: 0.85rem; color: #666; margin-top: 0.5rem; }
+  </style>
 </head>
 <body>
+  <h2>Encrypted Two‑Person Chat (Demo)</h2>
 
-<h2>Secure Auto-Connect Chat</h2>
-<div id="status">Connecting…</div>
+  <div id="top">
+    <input id="roomId" placeholder="Room ID (same for both users)" />
+    <input id="name" placeholder="Your name" />
+    <input id="secret" type="password" placeholder="Shared secret / passphrase" />
+    <button id="connectBtn">Connect</button>
+  </div>
 
-<div id="chat" style="display:none;">
-    <div id="log"></div>
-    <input id="msg" placeholder="Type message...">
-    <button onclick="sendMsg()">Send</button>
-</div>
+  <div id="status">Not connected.</div>
 
-<script src="https://www.gstatic.com/firebasejs/8.10.0/firebase-app.js"></script>
-<script src="https://www.gstatic.com/firebasejs/8.10.0/firebase-database.js"></script>
+  <div id="chat"></div>
 
-<script>
-// 🔥 REPLACE THIS WITH YOUR OWN FIREBASE CONFIG
-const firebaseConfig = {
+  <form id="sendArea">
+    <input id="messageInput" type="text" placeholder="Type a message..." autocomplete="off" />
+    <button type="submit">Send</button>
+  </form>
 
-  apiKey: "AIzaSyA_TIewvo2zNRJUgH0LzFDWtIhk3Lo9F9Y",
+  <!-- Firebase v9+ -->
+  <script type="module">
+    import { initializeApp } from "https://www.gstatic.com/firebasejs/9.23.0/firebase-app.js";
+    import {
+      getFirestore,
+      collection,
+      addDoc,
+      query,
+      orderBy,
+      onSnapshot
+    } from "https://www.gstatic.com/firebasejs/9.23.0/firebase-firestore.js";
 
-  authDomain: "chatty-8c8f5.firebaseapp.com",
+    // TODO: replace with your real config from Firebase console.
+    const firebaseConfig = {
+        apiKey: "AIzaSyA_TIewvo2zNRJUgH0LzFDWtIhk3Lo9F9Y",
+        authDomain: "chatty-8c8f5.firebaseapp.com",
+        databaseURL: "https://chatty-8c8f5-default-rtdb.firebaseio.com",
+        projectId: "chatty-8c8f5",
+        storageBucket: "chatty-8c8f5.firebasestorage.app",
+        messagingSenderId: "299726638202",
+        appId: "1:299726638202:web:3c8cb755292f14add0bfc3"
+    };
+    const app = initializeApp(firebaseConfig);
+    const db = getFirestore(app);
 
-  databaseURL: "https://chatty-8c8f5-default-rtdb.firebaseio.com",
+    const roomInput = document.getElementById("roomId");
+    const nameInput = document.getElementById("name");
+    const secretInput = document.getElementById("secret");
+    const connectBtn = document.getElementById("connectBtn");
+    const chatDiv = document.getElementById("chat");
+    const form = document.getElementById("sendArea");
+    const msgInput = document.getElementById("messageInput");
+    const statusDiv = document.getElementById("status");
 
-  projectId: "chatty-8c8f5",
+    let currentRoomCol = null;
+    let unsub = null;
+    let cryptoKey = null;
+    let myName = "";
 
-  storageBucket: "chatty-8c8f5.firebasestorage.app",
+    // ----- Crypto helpers (AES‑GCM with passphrase) -----
 
-  messagingSenderId: "299726638202",
-
-  appId: "1:299726638202:web:3c8cb755292f14add0bfc3"
-
-};
-
-firebase.initializeApp(firebaseConfig);
-const db = firebase.database();
-
-// AES-256 key for E2E encryption
-let key;
-(async () => {
-    key = await crypto.subtle.generateKey(
-        {name: "AES-GCM", length: 256},
-        true,
+    async function deriveKeyFromPassphrase(passphrase, roomId) {
+      const enc = new TextEncoder();
+      const salt = enc.encode("room:" + roomId); // simple derivation salt
+      const baseKey = await crypto.subtle.importKey(
+        "raw",
+        enc.encode(passphrase),
+        { name: "PBKDF2" },
+        false,
+        ["deriveKey"]
+      );
+      return await crypto.subtle.deriveKey(
+        {
+          name: "PBKDF2",
+          salt,
+          iterations: 200000,
+          hash: "SHA-256"
+        },
+        baseKey,
+        { name: "AES-GCM", length: 256 },
+        false,
         ["encrypt", "decrypt"]
-    );
-})();
-
-const room = "room1"; // only two users in this room
-let pc = new RTCPeerConnection({
-    iceServers: [
-        { urls: "stun:stun.l.google.com:19302" }
-    ]
-});
-
-let channel;
-let iceQueue = [];
-
-function log(text){
-    const box = document.getElementById("log");
-    box.innerHTML += text + "<br>";
-    box.scrollTop = box.scrollHeight;
-}
-
-async function encrypt(text){
-    const iv = crypto.getRandomValues(new Uint8Array(12));
-    const encoded = new TextEncoder().encode(text);
-    const ciphertext = await crypto.subtle.encrypt({name:"AES-GCM", iv}, key, encoded);
-    return {
-        ct: btoa(String.fromCharCode(...new Uint8Array(ciphertext))),
-        iv: btoa(String.fromCharCode(...iv))
-    };
-}
-
-async function decrypt(obj){
-    const ct = Uint8Array.from(atob(obj.ct), c=>c.charCodeAt(0));
-    const iv = Uint8Array.from(atob(obj.iv), c=>c.charCodeAt(0));
-    const plain = await crypto.subtle.decrypt({name:"AES-GCM", iv}, key, ct);
-    return new TextDecoder().decode(plain);
-}
-
-function sendMsg(){
-    const text = document.getElementById("msg").value;
-    encrypt(text).then(e=>{
-        channel.send(JSON.stringify(e));
-        log("You: " + text);
-        document.getElementById("msg").value = "";
-    });
-}
-
-// ICE candidate handling
-pc.onicecandidate = e => {
-    if(e.candidate){
-        db.ref(room + "/ice").push(JSON.stringify(e.candidate));
-    }
-};
-
-pc.ondatachannel = e => {
-    channel = e.channel;
-    channel.onmessage = async msg => {
-        const data = JSON.parse(msg.data);
-        const text = await decrypt(data);
-        log("Them: " + text);
-    };
-    channel.onopen = () => {
-        document.getElementById("chat").style.display = "block";
-        document.getElementById("status").innerText = "Connected!";
-    };
-};
-
-// Listen for incoming ICE candidates
-const roomRef = db.ref(room);
-roomRef.child("ice").on("child_added", snap => {
-    const candidate = JSON.parse(snap.val());
-    if(pc.remoteDescription){
-        pc.addIceCandidate(new RTCIceCandidate(candidate));
-    } else {
-        iceQueue.push(candidate);
-    }
-});
-
-async function flushIceQueue(){
-    for(let c of iceQueue){
-        await pc.addIceCandidate(new RTCIceCandidate(c));
-    }
-    iceQueue = [];
-}
-
-// Signaling
-(async ()=>{
-    const snapshot = await roomRef.once("value");
-    if(!snapshot.exists()){
-        // first user -> create data channel
-        channel = pc.createDataChannel("chat");
-        channel.onmessage = async msg => {
-            const data = JSON.parse(msg.data);
-            const text = await decrypt(data);
-            log("Them: " + text);
-        };
-        channel.onopen = () => {
-            document.getElementById("chat").style.display = "block";
-            document.getElementById("status").innerText = "Connected!";
-        };
-
-        const offer = await pc.createOffer();
-        await pc.setLocalDescription(offer);
-        await roomRef.set({offer: JSON.stringify(offer)});
-    } else {
-        // second user -> respond
-        const offer = JSON.parse(snapshot.val().offer);
-        await pc.setRemoteDescription(offer);
-        await flushIceQueue();
-
-        const answer = await pc.createAnswer();
-        await pc.setLocalDescription(answer);
-        await roomRef.child("answer").set(JSON.stringify(answer));
-        document.getElementById("chat").style.display = "block";
-        document.getElementById("status").innerText = "Connected!";
+      );
     }
 
-    // Listen for answer
-    roomRef.child("answer").on("value", async snap => {
-        if(snap.exists() && !pc.remoteDescription){
-            const answer = JSON.parse(snap.val());
-            await pc.setRemoteDescription(answer);
-            await flushIceQueue();
-            document.getElementById("chat").style.display = "block";
-            document.getElementById("status").innerText = "Connected!";
-        }
-    });
+    async function encryptMessage(plaintext) {
+      const enc = new TextEncoder();
+      const iv = crypto.getRandomValues(new Uint8Array(12));
+      const ciphertext = await crypto.subtle.encrypt(
+        { name: "AES-GCM", iv },
+        cryptoKey,
+        enc.encode(plaintext)
+      );
+      return {
+        iv: btoa(String.fromCharCode(...iv)),
+        data: btoa(String.fromCharCode(...new Uint8Array(ciphertext)))
+      };
+    }
 
-})();
-</script>
-</body>
-</html>
+    async function decryptMessage(obj) {
+      try {
+        const ivBytes = Uint8Array.from(atob(obj.iv), c => c.charCodeAt(0));
+        const dataBytes = Uint8Array.from(atob(obj.data), c => c.charCodeAt(0));
+        const plaintextBuf = await crypto.subtle.decrypt(
+          { name: "AES-GCM", iv: ivBytes },
+          cryptoKey,
+          dataBytes
+        );
+        return new TextDecoder().decode(plaintextBuf);
+      } catch (e) {
+        return "[decryption failed]";
+      }
+    }
+
+    // ----- UI / Firebase wiring -----
+
+    connectBtn.addEventListener("click", async () => {
+      const roomId = roomInput.value.trim();
+      myName = nameInput.value.trim() || "Anon";
+      const secret = secretInput.value;
+
+      if (!roomId || !secret) {
+        alert("Room ID and shared secret are required.");
+        return;
+      }
+
+      // Derive AES key from passphrase + room
+      cryptoKey = await deriveKeyFromPassphrase(secret, roomId);
+      statusDiv.textContent = "Key derived; connecting to room \"" + roomId + "\"...";
+
+      // Clean up previous listener if any
+      if (unsub) unsub();
+
+      currentRoomCol = collection(db, "rooms", roomId, "messages");
+      const q = query(currentRoomCol, orderBy("createdAt", "asc"));
+
+      unsub = onSnapshot(q, async (snapshot) => {
+        chatDiv.innerHTML = "";
+        for (const doc of snapshot.docs) {
+          const msg = doc.data();
+          const plaintext = await decryptMessage(msg.cipher);
+          const div = document.createElement("div");
+          div.className = "msg " + (msg.sender ===
 
