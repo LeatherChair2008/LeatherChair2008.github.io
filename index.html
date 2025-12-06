@@ -1,116 +1,150 @@
 <!DOCTYPE html>
 <html>
 <head>
-<meta charset="UTF-8" />
-<title>Secure 2-Person Chat</title>
+<meta charset="UTF-8">
+<title>AutoConnect Secure Chat</title>
 <style>
-body { font-family: Arial; margin: 20px; }
+body { font-family: Arial; margin:20px; }
 #log { width:100%; height:200px; border:1px solid #aaa; padding:10px; overflow:auto; }
-input, textarea { width: 100%; margin-top: 10px; }
+input { width:100%; margin-top:10px; }
 </style>
 </head>
 <body>
-<h2>Secure 2-Person Chat (Peer-to-Peer, E2EE)</h2>
 
-<p><b>1. One person clicks “Create Offer” and sends the text to the other.</b></p>
-<p><b>2. The other clicks “Create Answer” and sends the text back.</b></p>
+<h2>Secure Auto-Connect Chat</h2>
+<div id="status">Connecting…</div>
 
-<textarea id="offer" placeholder="Offer or Answer"></textarea>
-<button onclick="createOffer()">Create Offer</button>
-<button onclick="createAnswer()">Create Answer</button>
-
-<div id="connectArea" style="display:none;">
-    <h3>Chat</h3>
+<div id="chat" style="display:none;">
     <div id="log"></div>
-    <input id="msg" placeholder="Type message..." />
+    <input id="msg" placeholder="Type message...">
     <button onclick="sendMsg()">Send</button>
 </div>
 
-<script>
-// --- WebRTC + E2EE Chat ---
-let pc = new RTCPeerConnection();
-let channel;
-let key;
+<script src="https://www.gstatic.com/firebasejs/8.10.0/firebase-app.js"></script>
+<script src="https://www.gstatic.com/firebasejs/8.10.0/firebase-database.js"></script>
 
+<script>
+// 🔥 REPLACE THIS with your real Firebase config:
+const firebaseConfig = {
+  apiKey: "REPLACE_ME",
+  authDomain: "REPLACE_ME",
+  databaseURL: "REPLACE_ME",
+  projectId: "REPLACE_ME",
+  storageBucket: "REPLACE_ME",
+  messagingSenderId: "REPLACE_ME",
+  appId: "REPLACE_ME"
+};
+
+// initialize firebase
+firebase.initializeApp(firebaseConfig);
+const db = firebase.database();
+
+// AES-256 key for E2E encryption
+let key;
 (async () => {
-    key = await window.crypto.subtle.generateKey(
-        {name:"AES-GCM", length:256},
+    key = await crypto.subtle.generateKey(
+        {name: "AES-GCM", length: 256},
         true,
-        ["encrypt","decrypt"]
+        ["encrypt", "decrypt"]
     );
 })();
 
-pc.ondatachannel = (event) => {
-    channel = event.channel;
-    setupChannel();
-};
+let pc = new RTCPeerConnection();
+let channel;
 
-function setupChannel() {
-    channel.onmessage = async (e) => {
-        const data = JSON.parse(e.data);
-        const decrypted = await decrypt(data.ciphertext, data.iv);
-        log("Them: " + decrypted);
-    };
-    document.getElementById("connectArea").style.display = "block";
+const room = "room1"; // Only two users can access this one room
+
+function log(text) {
+    let box = document.getElementById("log");
+    box.innerHTML += text + "<br>";
+    box.scrollTop = box.scrollHeight;
 }
 
-function log(t) {
-    let l = document.getElementById("log");
-    l.innerHTML += t + "<br>";
-    l.scrollTop = l.scrollHeight;
-}
-
+// encryption helpers
 async function encrypt(text) {
-    const iv = window.crypto.getRandomValues(new Uint8Array(12));
+    const iv = crypto.getRandomValues(new Uint8Array(12));
     const encoded = new TextEncoder().encode(text);
     const ciphertext = await crypto.subtle.encrypt({name:"AES-GCM", iv}, key, encoded);
     return {
-        ciphertext: btoa(String.fromCharCode(...new Uint8Array(ciphertext))),
+        ct: btoa(String.fromCharCode(...new Uint8Array(ciphertext))),
         iv: btoa(String.fromCharCode(...iv))
     };
 }
 
-async function decrypt(ciphertext, iv) {
-    const ct = Uint8Array.from(atob(ciphertext), c => c.charCodeAt(0));
-    const ivb = Uint8Array.from(atob(iv), c => c.charCodeAt(0));
-    const plain = await crypto.subtle.decrypt({name:"AES-GCM", iv:ivb}, key, ct);
+async function decrypt(obj) {
+    const ct = Uint8Array.from(atob(obj.ct), c=>c.charCodeAt(0));
+    const iv = Uint8Array.from(atob(obj.iv), c=>c.charCodeAt(0));
+    const plain = await crypto.subtle.decrypt({name:"AES-GCM", iv}, key, ct);
     return new TextDecoder().decode(plain);
 }
 
-async function sendMsg() {
+function sendMsg() {
     const text = document.getElementById("msg").value;
-    const encrypted = await encrypt(text);
-    channel.send(JSON.stringify(encrypted));
-    log("You: " + text);
-    document.getElementById("msg").value = "";
+    encrypt(text).then(e => {
+        channel.send(JSON.stringify(e));
+        log("You: " + text);
+        document.getElementById("msg").value = "";
+    });
 }
 
-// ---- Connection Setup ----
-async function createOffer() {
-    channel = pc.createDataChannel("chat");
-    setupChannel();
-
-    const offer = await pc.createOffer();
-    await pc.setLocalDescription(offer);
-
-    document.getElementById("offer").value = JSON.stringify(offer);
-}
-
-async function createAnswer() {
-    const offer = JSON.parse(document.getElementById("offer").value);
-    await pc.setRemoteDescription(offer);
-
-    const answer = await pc.createAnswer();
-    await pc.setLocalDescription(answer);
-
-    document.getElementById("offer").value = JSON.stringify(answer);
-
-    pc.onicecandidate = (e) => {
-        if (e.candidate === null) {
-            document.getElementById("offer").value = JSON.stringify(pc.localDescription);
-        }
+pc.ondatachannel = e => {
+    channel = e.channel;
+    channel.onmessage = async msg => {
+        const data = JSON.parse(msg.data);
+        const text = await decrypt(data);
+        log("Them: " + text);
     };
-}
+    document.getElementById("chat").style.display = "block";
+};
+
+pc.onicecandidate = e => {
+    if (e.candidate) {
+        db.ref(room + "/ice").push(JSON.stringify(e.candidate));
+    }
+};
+
+// signaling
+(async () => {
+    const roomRef = db.ref(room);
+    const snapshot = await roomRef.once("value");
+
+    if (!snapshot.exists()) {
+        channel = pc.createDataChannel("chat");
+
+        channel.onopen = () => {
+            document.getElementById("chat").style.display = "block";
+        };
+
+        const offer = await pc.createOffer();
+        await pc.setLocalDescription(offer);
+
+        await roomRef.set({ offer: JSON.stringify(offer) });
+    } else {
+        const offer = JSON.parse(snapshot.val().offer);
+        await pc.setRemoteDescription(offer);
+
+        const answer = await pc.createAnswer();
+        await pc.setLocalDescription(answer);
+
+        await roomRef.child("answer").set(JSON.stringify(answer));
+    }
+
+    roomRef.child("answer").on("value", async snap => {
+        if (snap.exists()) {
+            const answer = JSON.parse(snap.val());
+            if (pc.signalingState !== "stable") {
+                await pc.setRemoteDescription(answer);
+            }
+        }
+    });
+
+    roomRef.child("ice").on("child_added", snap => {
+        const candidate = JSON.parse(snap.val());
+        pc.addIceCandidate(new RTCIceCandidate(candidate));
+    });
+
+})();
 </script>
 </body>
 </html>
+
