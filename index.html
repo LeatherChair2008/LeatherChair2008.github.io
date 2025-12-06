@@ -2,11 +2,12 @@
 <html>
 <head>
 <meta charset="UTF-8">
-<title>AutoConnect Secure Chat</title>
+<title>Secure AutoConnect Chat</title>
 <style>
 body { font-family: Arial; margin:20px; }
-#log { width:100%; height:200px; border:1px solid #aaa; padding:10px; overflow:auto; }
+#log { width:100%; height:300px; border:1px solid #aaa; padding:10px; overflow:auto; }
 input { width:100%; margin-top:10px; }
+button { margin-top:5px; }
 </style>
 </head>
 <body>
@@ -24,7 +25,7 @@ input { width:100%; margin-top:10px; }
 <script src="https://www.gstatic.com/firebasejs/8.10.0/firebase-database.js"></script>
 
 <script>
-// 🔥 REPLACE THIS with your real Firebase config:
+// 🔥 REPLACE THIS WITH YOUR OWN FIREBASE CONFIG
 const firebaseConfig = {
 
   apiKey: "AIzaSyA_TIewvo2zNRJUgH0LzFDWtIhk3Lo9F9Y",
@@ -43,8 +44,6 @@ const firebaseConfig = {
 
 };
 
-
-// initialize firebase
 firebase.initializeApp(firebaseConfig);
 const db = firebase.database();
 
@@ -58,6 +57,7 @@ let key;
     );
 })();
 
+const room = "room1"; // only two users in this room
 let pc = new RTCPeerConnection({
     iceServers: [
         { urls: "stun:stun.l.google.com:19302" }
@@ -65,17 +65,15 @@ let pc = new RTCPeerConnection({
 });
 
 let channel;
+let iceQueue = [];
 
-const room = "room1"; // Only two users can access this one room
-
-function log(text) {
-    let box = document.getElementById("log");
+function log(text){
+    const box = document.getElementById("log");
     box.innerHTML += text + "<br>";
     box.scrollTop = box.scrollHeight;
 }
 
-// encryption helpers
-async function encrypt(text) {
+async function encrypt(text){
     const iv = crypto.getRandomValues(new Uint8Array(12));
     const encoded = new TextEncoder().encode(text);
     const ciphertext = await crypto.subtle.encrypt({name:"AES-GCM", iv}, key, encoded);
@@ -85,21 +83,28 @@ async function encrypt(text) {
     };
 }
 
-async function decrypt(obj) {
+async function decrypt(obj){
     const ct = Uint8Array.from(atob(obj.ct), c=>c.charCodeAt(0));
     const iv = Uint8Array.from(atob(obj.iv), c=>c.charCodeAt(0));
     const plain = await crypto.subtle.decrypt({name:"AES-GCM", iv}, key, ct);
     return new TextDecoder().decode(plain);
 }
 
-function sendMsg() {
+function sendMsg(){
     const text = document.getElementById("msg").value;
-    encrypt(text).then(e => {
+    encrypt(text).then(e=>{
         channel.send(JSON.stringify(e));
         log("You: " + text);
         document.getElementById("msg").value = "";
     });
 }
+
+// ICE candidate handling
+pc.onicecandidate = e => {
+    if(e.candidate){
+        db.ref(room + "/ice").push(JSON.stringify(e.candidate));
+    }
+};
 
 pc.ondatachannel = e => {
     channel = e.channel;
@@ -108,53 +113,71 @@ pc.ondatachannel = e => {
         const text = await decrypt(data);
         log("Them: " + text);
     };
-    document.getElementById("chat").style.display = "block";
+    channel.onopen = () => {
+        document.getElementById("chat").style.display = "block";
+        document.getElementById("status").innerText = "Connected!";
+    };
 };
 
-pc.onicecandidate = e => {
-    if (e.candidate) {
-        db.ref(room + "/ice").push(JSON.stringify(e.candidate));
+// Listen for incoming ICE candidates
+const roomRef = db.ref(room);
+roomRef.child("ice").on("child_added", snap => {
+    const candidate = JSON.parse(snap.val());
+    if(pc.remoteDescription){
+        pc.addIceCandidate(new RTCIceCandidate(candidate));
+    } else {
+        iceQueue.push(candidate);
     }
-};
+});
 
-// signaling
-(async () => {
-    const roomRef = db.ref(room);
+async function flushIceQueue(){
+    for(let c of iceQueue){
+        await pc.addIceCandidate(new RTCIceCandidate(c));
+    }
+    iceQueue = [];
+}
+
+// Signaling
+(async ()=>{
     const snapshot = await roomRef.once("value");
-
-    if (!snapshot.exists()) {
+    if(!snapshot.exists()){
+        // first user -> create data channel
         channel = pc.createDataChannel("chat");
-
+        channel.onmessage = async msg => {
+            const data = JSON.parse(msg.data);
+            const text = await decrypt(data);
+            log("Them: " + text);
+        };
         channel.onopen = () => {
             document.getElementById("chat").style.display = "block";
+            document.getElementById("status").innerText = "Connected!";
         };
 
         const offer = await pc.createOffer();
         await pc.setLocalDescription(offer);
-
-        await roomRef.set({ offer: JSON.stringify(offer) });
+        await roomRef.set({offer: JSON.stringify(offer)});
     } else {
+        // second user -> respond
         const offer = JSON.parse(snapshot.val().offer);
         await pc.setRemoteDescription(offer);
+        await flushIceQueue();
 
         const answer = await pc.createAnswer();
         await pc.setLocalDescription(answer);
-
         await roomRef.child("answer").set(JSON.stringify(answer));
+        document.getElementById("chat").style.display = "block";
+        document.getElementById("status").innerText = "Connected!";
     }
 
+    // Listen for answer
     roomRef.child("answer").on("value", async snap => {
-        if (snap.exists()) {
+        if(snap.exists() && !pc.remoteDescription){
             const answer = JSON.parse(snap.val());
-            if (pc.signalingState !== "stable") {
-                await pc.setRemoteDescription(answer);
-            }
+            await pc.setRemoteDescription(answer);
+            await flushIceQueue();
+            document.getElementById("chat").style.display = "block";
+            document.getElementById("status").innerText = "Connected!";
         }
-    });
-
-    roomRef.child("ice").on("child_added", snap => {
-        const candidate = JSON.parse(snap.val());
-        pc.addIceCandidate(new RTCIceCandidate(candidate));
     });
 
 })();
