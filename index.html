@@ -2,9 +2,8 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
-  <title>Two-Person Room-Code Chat v2</title>
-  <meta name="viewport" content="width=device-width,initial-scale=1" />
-  <style>
+  <title>Two-Person Room-Code Chat v3</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">  <style>
     body {
       font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
       margin: 0;
@@ -48,6 +47,8 @@
       #max-height: 800px;
       height: 100vh;
       max-height: 100vh;
+      -webkit-overflow-scrolling: touch;
+      overscroll-behavior: contain;  /* Prevent pull-to-refresh */
     }
 
     header {
@@ -190,11 +191,25 @@
     }
 
     #messages {
-      flex: 1;
-      min-height: 0;          /* critical for flex children */
+      flex: 1 1 auto;
+      min-height: 0;
       max-height: 100%;
-      overflow-y: auto;       /* ensure inner scrolling */
+      background: #020617;
+      border-radius: 12px;
+      border: 1px solid #1f2937;
+      padding: 8px;
+      overflow-y: auto;
+      overflow-y: overlay;  /* iOS smooth scroll */
+      -webkit-overflow-scrolling: touch;  /* iOS momentum scroll */
+      font-size: 13px;
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+      scrollbar-width: thin;
+      scrollbar-color: #4b5563 #1f2937;
+      touch-action: pan-y;  /* Only vertical touch */
     }
+
 
 
     
@@ -210,6 +225,15 @@
   
       button {
         align-self: stretch; /* Full width buttons on mobile */
+      }
+      body {
+        padding: 0 !important;
+        margin: 0 !important;
+        height: 100vh;
+        overflow: hidden;  /* Kill body scroll */
+      }
+      #messages {
+        scroll-snap-type: y mandatory;
       }
     }
   </style>
@@ -480,7 +504,7 @@
   <div class="app">
     <header>
       <div>
-        <strong>Room Code Chat v2</strong><br />
+        <strong>Room Code Chat v3</strong><br />
         <small id="status">Room: - | You: Guest</small>
       </div>
       <small>2-person use recommended</small>
