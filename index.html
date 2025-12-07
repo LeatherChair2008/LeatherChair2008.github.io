@@ -98,7 +98,7 @@
       margin-bottom: 4px;
     }
     #messages {
-      flex: 1;
+    flex: 1;
       background: #020617;
       border-radius: 12px;
       border: 1px solid #1f2937;
@@ -108,7 +108,11 @@
       display: flex;
       flex-direction: column;
       gap: 4px;
+      scroll-behavior: smooth; /* Smooth scroll */
+      scrollbar-width: thin; /* Firefox */
+      scrollbar-color: #4b5563 #1f2937;
     }
+
     .msg {
       max-width: 80%;
       padding: 6px 10px;
@@ -149,6 +153,24 @@
     #messageInput {
       flex: 1;
     }
+
+    /* Webkit browsers (Chrome/Safari) */
+    #messages::-webkit-scrollbar {
+      width: 6px;
+    }
+    #messages::-webkit-scrollbar-track {
+      background: #1f2937;
+      border-radius: 3px;
+    }
+    #messages::-webkit-scrollbar-thumb {
+      background: #4b5563;
+      border-radius: 3px;
+    }
+    #messages::-webkit-scrollbar-thumb:hover {
+      background: #6b7280;
+    }
+
+    
     /* Mobile-specific fixes */  
     @media (max-width: 480px) {
       .row {
@@ -232,6 +254,12 @@
       const hashArray = Array.from(new Uint8Array(hashBuffer));
       return btoa(String.fromCharCode(...hashArray)).replace(/\+/g, '-').replace(/\//g, '_').slice(0, 32);
 ````}
+
+    function scrollToBottom() {
+      const messagesDiv = document.getElementById("messages");
+      messagesDiv.scrollTop = messagesDiv.scrollHeight;
+    }
+
 
 
     window.addEventListener("DOMContentLoaded", () => {
@@ -324,7 +352,7 @@
         el.className = "system";
         el.textContent = text;
         messagesDiv.appendChild(el);
-        messagesDiv.scrollTop = messagesDiv.scrollHeight;
+        scrollToBottom();
       }
 
       function joinRoom(code) {
@@ -348,6 +376,9 @@
         );
 
         unsubscribe = onSnapshot(q, (snapshot) => {
+          const messagesDiv = document.getElementById("messages");
+          const wasAtBottom = messagesDiv.scrollHeight - messagesDiv.scrollTop <= 100;
+          
           messagesDiv.innerHTML = "";
           snapshot.forEach((doc) => {
             const data = doc.data();
@@ -372,6 +403,8 @@
             messagesDiv.appendChild(wrapper);
           });
           messagesDiv.scrollTop = messagesDiv.scrollHeight;
+          if (wasAtBottom) {
+            scrollToBottom();
         });
       }
 
