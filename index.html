@@ -2,53 +2,151 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
-  <title>Simple Encrypted Chat</title>
-  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Two-Person Room-Code Chat</title>
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
   <style>
-    body { font-family: sans-serif; max-width: 700px; margin: 0 auto; padding: 1rem; }
-    #chat { border: 1px solid #ccc; height: 300px; overflow-y: auto; padding: 0.5rem; margin-top: 1rem; }
-    .msg { margin: 0.25rem 0; }
-    .me { font-weight: bold; color: #0a6; }
-    .other { color: #333; }
-    #top { display: flex; flex-wrap: wrap; gap: 0.5rem; }
-    #top input { flex: 1 1 150px; padding: 0.25rem; }
-    #sendArea { margin-top: 0.5rem; display: flex; gap: 0.5rem; }
-    #sendArea input[type=text] { flex: 1; padding: 0.25rem; }
-    #status { font-size: 0.85rem; color: #666; margin-top: 0.5rem; }
+    body {
+      font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      margin: 0;
+      padding: 0;
+      background: #0f172a;
+      color: #e5e7eb;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      min-height: 100vh;
+    }
+    .app {
+      width: 100%;
+      max-width: 480px;
+      background: #020617;
+      border-radius: 12px;
+      box-shadow: 0 20px 40px rgba(0,0,0,0.7);
+      overflow: hidden;
+      border: 1px solid #1f2937;
+      display: flex;
+      flex-direction: column;
+      height: 80vh;
+    }
+    header {
+      padding: 12px 16px;
+      background: #111827;
+      border-bottom: 1px solid #1f2937;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      font-size: 14px;
+    }
+    header strong {
+      color: #f97316;
+    }
+    header small {
+      color: #9ca3af;
+    }
+    main {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      padding: 12px;
+      gap: 8px;
+    }
+    .row {
+      display: flex;
+      gap: 8px;
+      margin-bottom: 8px;
+    }
+    input, button {
+      font: inherit;
+      border-radius: 999px;
+      border: 1px solid #374151;
+      padding: 8px 12px;
+      outline: none;
+      background: #020617;
+      color: #e5e7eb;
+    }
+    input:focus {
+      border-color: #f97316;
+      box-shadow: 0 0 0 1px #f97316;
+    }
+    button {
+      background: linear-gradient(to right, #f97316, #fb923c);
+      border: none;
+      color: #020617;
+      font-weight: 600;
+      cursor: pointer;
+      white-space: nowrap;
+    }
+    button:disabled {
+      opacity: 0.5;
+      cursor: not-allowed;
+    }
+    #roomInput, #nameInput {
+      flex: 1;
+    }
+    .hint {
+      font-size: 11px;
+      color: #9ca3af;
+      margin-top: -4px;
+      margin-bottom: 4px;
+    }
+    #messages {
+      flex: 1;
+      background: #020617;
+      border-radius: 12px;
+      border: 1px solid #1f2937;
+      padding: 8px;
+      overflow-y: auto;
+      font-size: 13px;
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+    }
+    .msg {
+      max-width: 80%;
+      padding: 6px 10px;
+      border-radius: 12px;
+      display: inline-block;
+      word-wrap: break-word;
+    }
+    .me {
+      align-self: flex-end;
+      background: #f97316;
+      color: #020617;
+    }
+    .other {
+      align-self: flex-start;
+      background: #111827;
+      color: #e5e7eb;
+    }
+    .meta {
+      font-size: 10px;
+      opacity: 0.7;
+      margin-bottom: 2px;
+    }
+    .me .meta {
+      text-align: right;
+    }
+    .system {
+      text-align: center;
+      font-size: 11px;
+      color: #9ca3af;
+      margin: 4px 0;
+    }
+    form#sendForm {
+      display: flex;
+      padding: 8px 12px 12px 12px;
+      gap: 8px;
+      border-top: 1px solid #1f2937;
+    }
+    #messageInput {
+      flex: 1;
+    }
   </style>
-</head>
-<body>
-  <h2>Encrypted Two‑Person Chat (Demo)</h2>
 
-  <div id="top">
-    <input id="roomId" placeholder="Room ID (same for both users)" />
-    <input id="name" placeholder="Your name" />
-    <input id="secret" type="password" placeholder="Shared secret / passphrase" />
-    <button id="connectBtn">Connect</button>
-  </div>
-
-  <div id="status">Not connected.</div>
-
-  <div id="chat"></div>
-
-  <form id="sendArea">
-    <input id="messageInput" type="text" placeholder="Type a message..." autocomplete="off" />
-    <button type="submit">Send</button>
-  </form>
-
-  <!-- Firebase v9+ -->
+  <!-- Firebase v9+ (modular) from CDN -->
   <script type="module">
-    import { initializeApp } from "https://www.gstatic.com/firebasejs/9.23.0/firebase-app.js";
-    import {
-      getFirestore,
-      collection,
-      addDoc,
-      query,
-      orderBy,
-      onSnapshot
-    } from "https://www.gstatic.com/firebasejs/9.23.0/firebase-firestore.js";
-
-    // TODO: replace with your real config from Firebase console.
+    // TODO: replace with your Firebase project config
+    // Get this object from the Firebase console: Project settings > General > Your apps > Web app.
     const firebaseConfig = {
         apiKey: "AIzaSyA_TIewvo2zNRJUgH0LzFDWtIhk3Lo9F9Y",
         authDomain: "chatty-8c8f5.firebaseapp.com",
@@ -58,105 +156,186 @@
         messagingSenderId: "299726638202",
         appId: "1:299726638202:web:3c8cb755292f14add0bfc3"
     };
+
+    import { initializeApp } from "https://www.gstatic.com/firebasejs/11.0.1/firebase-app.js";
+    import {
+      getFirestore,
+      collection,
+      addDoc,
+      query,
+      orderBy,
+      onSnapshot,
+      serverTimestamp,
+      where
+    } from "https://www.gstatic.com/firebasejs/11.0.1/firebase-firestore.js";
+
     const app = initializeApp(firebaseConfig);
     const db = getFirestore(app);
 
-    const roomInput = document.getElementById("roomId");
-    const nameInput = document.getElementById("name");
-    const secretInput = document.getElementById("secret");
-    const connectBtn = document.getElementById("connectBtn");
-    const chatDiv = document.getElementById("chat");
-    const form = document.getElementById("sendArea");
-    const msgInput = document.getElementById("messageInput");
-    const statusDiv = document.getElementById("status");
-
-    let currentRoomCol = null;
-    let unsub = null;
-    let cryptoKey = null;
-    let myName = "";
-
-    // ----- Crypto helpers (AES‑GCM with passphrase) -----
-
-    async function deriveKeyFromPassphrase(passphrase, roomId) {
-      const enc = new TextEncoder();
-      const salt = enc.encode("room:" + roomId); // simple derivation salt
-      const baseKey = await crypto.subtle.importKey(
-        "raw",
-        enc.encode(passphrase),
-        { name: "PBKDF2" },
-        false,
-        ["deriveKey"]
-      );
-      return await crypto.subtle.deriveKey(
-        {
-          name: "PBKDF2",
-          salt,
-          iterations: 200000,
-          hash: "SHA-256"
-        },
-        baseKey,
-        { name: "AES-GCM", length: 256 },
-        false,
-        ["encrypt", "decrypt"]
-      );
+    // Very lightweight "anonymous" identity: a random ID + a locally stored display name.
+    const localIdKey = "chatLocalId";
+    let localId = localStorage.getItem(localIdKey);
+    if (!localId) {
+      localId = "user_" + Math.random().toString(36).slice(2, 10);
+      localStorage.setItem(localIdKey, localId);
     }
 
-    async function encryptMessage(plaintext) {
-      const enc = new TextEncoder();
-      const iv = crypto.getRandomValues(new Uint8Array(12));
-      const ciphertext = await crypto.subtle.encrypt(
-        { name: "AES-GCM", iv },
-        cryptoKey,
-        enc.encode(plaintext)
-      );
-      return {
-        iv: btoa(String.fromCharCode(...iv)),
-        data: btoa(String.fromCharCode(...new Uint8Array(ciphertext)))
-      };
-    }
+    let currentRoom = null;
+    let unsubscribe = null;
 
-    async function decryptMessage(obj) {
-      try {
-        const ivBytes = Uint8Array.from(atob(obj.iv), c => c.charCodeAt(0));
-        const dataBytes = Uint8Array.from(atob(obj.data), c => c.charCodeAt(0));
-        const plaintextBuf = await crypto.subtle.decrypt(
-          { name: "AES-GCM", iv: ivBytes },
-          cryptoKey,
-          dataBytes
+    window.addEventListener("DOMContentLoaded", () => {
+      const roomInput = document.getElementById("roomInput");
+      const joinBtn = document.getElementById("joinBtn");
+      const nameInput = document.getElementById("nameInput");
+      const saveNameBtn = document.getElementById("saveNameBtn");
+      const statusSpan = document.getElementById("status");
+      const messagesDiv = document.getElementById("messages");
+      const sendForm = document.getElementById("sendForm");
+      const messageInput = document.getElementById("messageInput");
+
+      // Restore display name if set
+      const savedName = localStorage.getItem("chatDisplayName") || "";
+      if (savedName) {
+        nameInput.value = savedName;
+      }
+
+      saveNameBtn.addEventListener("click", () => {
+        const name = nameInput.value.trim();
+        if (!name) return;
+        localStorage.setItem("chatDisplayName", name);
+        statusSpan.textContent = `Room: ${currentRoom || "-"} | You: ${name}`;
+      });
+
+      joinBtn.addEventListener("click", () => {
+        const code = roomInput.value.trim();
+        if (!code) return;
+        joinRoom(code);
+      });
+
+      sendForm.addEventListener("submit", async (e) => {
+        e.preventDefault();
+        const text = messageInput.value.trim();
+        if (!text || !currentRoom) return;
+        const name = localStorage.getItem("chatDisplayName") || "Guest";
+
+        try {
+          await addDoc(collection(db, "messages"), {
+            room: currentRoom,
+            text,
+            senderId: localId,
+            senderName: name,
+            createdAt: serverTimestamp()
+          });
+          messageInput.value = "";
+        } catch (err) {
+          console.error(err);
+          alert("Failed to send message.");
+        }
+      });
+
+      function renderSystemMessage(text) {
+        const el = document.createElement("div");
+        el.className = "system";
+        el.textContent = text;
+        messagesDiv.appendChild(el);
+        messagesDiv.scrollTop = messagesDiv.scrollHeight;
+      }
+
+      function joinRoom(code) {
+        // Unsubscribe from previous room
+        if (unsubscribe) {
+          unsubscribe();
+          unsubscribe = null;
+        }
+        currentRoom = code;
+        messagesDiv.innerHTML = "";
+        renderSystemMessage(`Joined room "${code}". Share this code with exactly one other person.`);
+
+        statusSpan.textContent =
+          `Room: ${code} | You: ${localStorage.getItem("chatDisplayName") || "Guest"}`;
+
+        // Listen only to this room's messages, ordered by time
+        const q = query(
+          collection(db, "messages"),
+          where("room", "==", code),
+          orderBy("createdAt", "asc")
         );
-        return new TextDecoder().decode(plaintextBuf);
-      } catch (e) {
-        return "[decryption failed]";
+
+        unsubscribe = onSnapshot(q, (snapshot) => {
+          messagesDiv.innerHTML = "";
+          snapshot.forEach((doc) => {
+            const data = doc.data();
+            const isMe = data.senderId === localId;
+
+            const wrapper = document.createElement("div");
+            wrapper.className = "msg " + (isMe ? "me" : "other");
+
+            const meta = document.createElement("div");
+            meta.className = "meta";
+            const name = data.senderName || "Anon";
+            const ts = data.createdAt?.toDate
+              ? data.createdAt.toDate().toLocaleTimeString()
+              : "";
+            meta.textContent = `${name}${ts ? " · " + ts : ""}`;
+
+            const text = document.createElement("div");
+            text.textContent = data.text;
+
+            wrapper.appendChild(meta);
+            wrapper.appendChild(text);
+            messagesDiv.appendChild(wrapper);
+          });
+          messagesDiv.scrollTop = messagesDiv.scrollHeight;
+        });
       }
-    }
 
-    // ----- UI / Firebase wiring -----
-
-    connectBtn.addEventListener("click", async () => {
-      const roomId = roomInput.value.trim();
-      myName = nameInput.value.trim() || "Anon";
-      const secret = secretInput.value;
-
-      if (!roomId || !secret) {
-        alert("Room ID and shared secret are required.");
-        return;
+      // Optional: auto-join last used room from URL or localStorage
+      const urlMatch = location.hash.match(/room=([A-Za-z0-9_-]+)/);
+      const lastRoom = urlMatch ? urlMatch[1] : localStorage.getItem("chatLastRoom");
+      if (lastRoom) {
+        roomInput.value = lastRoom;
+        joinRoom(lastRoom);
       }
 
-      // Derive AES key from passphrase + room
-      cryptoKey = await deriveKeyFromPassphrase(secret, roomId);
-      statusDiv.textContent = "Key derived; connecting to room \"" + roomId + "\"...";
+      roomInput.addEventListener("change", () => {
+        const code = roomInput.value.trim();
+        if (code) localStorage.setItem("chatLastRoom", code);
+      });
+    });
+  </script>
+</head>
+<body>
+  <div class="app">
+    <header>
+      <div>
+        <strong>Room Code Chat</strong><br />
+        <small id="status">Room: - | You: Guest</small>
+      </div>
+      <small>2-person use recommended</small>
+    </header>
+    <main>
+      <div class="row">
+        <input id="roomInput" placeholder="Room code (e.g. abc123)" />
+        <button id="joinBtn">Join</button>
+      </div>
+      <div class="hint">
+        Share the same room code with exactly one other person. Anyone with the code can see messages.
+      </div>
 
-      // Clean up previous listener if any
-      if (unsub) unsub();
+      <div class="row">
+        <input id="nameInput" placeholder="Display name (local only)" />
+        <button id="saveNameBtn">Save</button>
+      </div>
+      <div class="hint">
+        Name is stored only in this browser and sent with messages. No formal authentication is used.
+      </div>
 
-      currentRoomCol = collection(db, "rooms", roomId, "messages");
-      const q = query(currentRoomCol, orderBy("createdAt", "asc"));
-
-      unsub = onSnapshot(q, async (snapshot) => {
-        chatDiv.innerHTML = "";
-        for (const doc of snapshot.docs) {
-          const msg = doc.data();
-          const plaintext = await decryptMessage(msg.cipher);
-          const div = document.createElement("div");
-          div.className = "msg " + (msg.sender ===
-
+      <div id="messages"></div>
+    </main>
+    <form id="sendForm">
+      <input id="messageInput" autocomplete="off" placeholder="Type a message..." />
+      <button type="submit">Send</button>
+    </form>
+  </div>
+</body>
+</html>
