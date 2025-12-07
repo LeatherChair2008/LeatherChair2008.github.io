@@ -27,8 +27,10 @@
       border: 1px solid #1f2937;
       display: flex;
       flex-direction: column;
-      height: 90vh; /* Taller on mobile */
-      max-height: 800px;
+      #height: 90vh; /* Taller on mobile */
+      #max-height: 800px;
+      height: 100vh;
+      max-height: 100vh;
     }
 
     header {
@@ -169,6 +171,14 @@
     #messages::-webkit-scrollbar-thumb:hover {
       background: #6b7280;
     }
+
+    #messages {
+  flex: 1;
+  min-height: 0;          /* critical for flex children */
+  max-height: 100%;
+  overflow-y: auto;       /* ensure inner scrolling */
+    }
+
 
     
     /* Mobile-specific fixes */  
