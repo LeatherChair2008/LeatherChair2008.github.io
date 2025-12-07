@@ -165,6 +165,17 @@
 
 };
 
+    import {
+      getStorage,
+      ref,
+      uploadBytes,
+      getDownloadURL
+  }   from "https://www.gstatic.com/firebasejs/11.0.1/firebase-storage.js";
+
+  const app = initializeApp(firebaseConfig);
+  const db = getFirestore(app);
+  const storage = getStorage(app);
+
 
     import { initializeApp } from "https://www.gstatic.com/firebasejs/11.0.1/firebase-app.js";
     import {
@@ -177,6 +188,9 @@
       serverTimestamp,
       where
     } from "https://www.gstatic.com/firebasejs/11.0.1/firebase-firestore.js";
+
+    import { doc, getDoc, setDoc } from "https://www.gstatic.com/firebasejs/11.0.1/firebase-firestore.js";
+
 
     const app = initializeApp(firebaseConfig);
     const db = getFirestore(app);
@@ -191,6 +205,16 @@
 
     let currentRoom = null;
     let unsubscribe = null;
+
+    // Simple but secure hash (SHA-256 via Web Crypto API)
+    async function hashPassword(password) {
+      const encoder = new TextEncoder();
+      const data = encoder.encode(password);
+      const hashBuffer = await crypto.subtle.digest('SHA-256', data);
+      const hashArray = Array.from(new Uint8Array(hashBuffer));
+      return btoa(String.fromCharCode(...hashArray)).replace(/\+/g, '-').replace(/\//g, '_').slice(0, 32);
+````}
+
 
     window.addEventListener("DOMContentLoaded", () => {
       const roomInput = document.getElementById("roomInput");
@@ -215,11 +239,46 @@
         statusSpan.textContent = `Room: ${currentRoom || "-"} | You: ${name}`;
       });
 
-      joinBtn.addEventListener("click", () => {
+      joinBtn.addEventListener("click", async () => {
         const code = roomInput.value.trim();
-        if (!code) return;
+        const password = document.getElementById("passwordInput").value;
+  
+        if (!code || !password) {
+          alert("Room code and password required");
+          return;
+        }
+
+        const hashedPassword = await hashPassword(password);
+        const roomCheck = await checkRoomPassword(code, hashedPassword);
+  
+        if (!roomCheck) {
+          alert("Wrong password for this room");
+          return;
+        }
+  
         joinRoom(code);
       });
+
+      async function checkRoomPassword(roomCode, hashedPassword) {
+        try {
+          const roomRef = doc(db, "rooms", roomCode);
+          const roomSnap = await getDoc(roomRef);
+    
+          if (!roomSnap.exists()) {
+          // Auto-create room on first use
+          await setDoc(roomRef, {
+            passwordHash: hashedPassword,
+            createdAt: serverTimestamp()
+          });
+          return true;
+        }
+    
+        return roomSnap.data().passwordHash === hashedPassword;
+      } catch (err) {
+        console.error(err);
+        return false;
+      }
+    }
 
       sendForm.addEventListener("submit", async (e) => {
         e.preventDefault();
@@ -325,11 +384,13 @@
     <main>
       <div class="row">
         <input id="roomInput" placeholder="Room code (e.g. abc123)" />
+        <input id="passwordInput" type="password" placeholder="Room password" />
         <button id="joinBtn">Join</button>
       </div>
       <div class="hint">
-        Share the same room code with exactly one other person. Anyone with the code can see messages.
+        Enter room code + password. Share both with your chat partner.
       </div>
+
 
       <div class="row">
         <input id="nameInput" placeholder="Display name (local only)" />
